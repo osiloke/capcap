@@ -14,8 +14,6 @@
 package cmd
 
 import (
-	"context"
-	"fmt"
 	"github.com/osiloke/capcap"
 	"github.com/spf13/cobra"
 	"os"
@@ -44,29 +42,34 @@ var watchCmd = &cobra.Command{
 	Short: "Watch an interface",
 	Long:  `Watch an interface.`,
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("watch called")
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		signalChan := make(chan os.Signal, 1)
 
-		signals := make(chan os.Signal, 2)
-		signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
+		signal.Notify(signalChan,
+			os.Interrupt,
+			os.Kill,
+			syscall.SIGTERM,
+		)
+		done := make(chan bool, 1)
+		complete := make(chan bool, 1)
+		go capcap.Watch(done, complete, workerCount, &capcap.Conf{
+			"",
+			ifaces,
+			filter,
+			packetTimeInterval,
+			flowTimeout,
+			flowByteCutoff,
+			flowPacketCutoff,
+			writeOutputPath,
+			writeCompressed,
+			rotationInterval,
+		})
+	OUTER:
 		for {
 			select {
-			case <-signals:
-				return
-			default:
-				capcap.Watch(ctx, workerCount, &capcap.Conf{
-					"",
-					ifaces,
-					filter,
-					packetTimeInterval,
-					flowTimeout,
-					flowByteCutoff,
-					flowPacketCutoff,
-					writeOutputPath,
-					writeCompressed,
-					rotationInterval,
-				})
+			case <-signalChan:
+				println("signal received")
+				capcap.Stop(done, complete)
+				break OUTER
 			}
 		}
 	},

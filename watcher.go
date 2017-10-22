@@ -1,21 +1,29 @@
 package capcap
 
 import (
-	"context"
 	"fmt"
 	"log"
-	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
 
-func Watch(ctx context.Context, workerCount int, conf *Conf) {
+func Stop(done, complete chan bool) {
+	done <- true
+	select {
+	case <-time.After(5 * time.Second):
+		return
+	case <-complete:
+		return
+	}
+}
+func Watch(done, complete chan bool, workerCount int, conf *Conf) {
 	var (
 		writeOutputPath  = conf.WriteOutputPath
 		rotationInterval = conf.RotationInterval
 	)
 	ifacesName := strings.Join(conf.Iface, "_")
-	currentFileName := fmt.Sprintf("%s_current.pcap.tmp", ifacesName)
+	currentFileName := filepath.Join(conf.WriteOutputPath, fmt.Sprintf("%s_current.pcap.tmp", ifacesName))
 	pcapWriterChan := make(chan PcapFrame, 500000)
 
 	for _, iface := range conf.Iface {
@@ -35,7 +43,7 @@ func Watch(ctx context.Context, workerCount int, conf *Conf) {
 	if err != nil {
 		log.Fatal("Error opening pcap", err)
 	}
-
+OUTER:
 	for {
 		select {
 		case pcf := <-pcapWriterChan:
@@ -60,9 +68,8 @@ func Watch(ctx context.Context, workerCount int, conf *Conf) {
 			if err != nil {
 				log.Fatal("Error opening pcap", err)
 			}
-
-		case <-ctx.Done():
-			log.Print("Control-C??")
+		case <-done:
+			log.Print("closing watcher")
 			err = pcapWriter.Close()
 			if err != nil {
 				log.Fatal("Error Closing", err)
@@ -71,7 +78,13 @@ func Watch(ctx context.Context, workerCount int, conf *Conf) {
 			if err != nil {
 				log.Fatal("Error renaming pcap", err)
 			}
-			os.Exit(0)
+			break OUTER
 		}
 	}
+	complete <- true
+	log.Println("stopped watcher")
+}
+
+type Watcher struct {
+	done chan bool
 }
