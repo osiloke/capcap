@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"time"
 
+	"errors"
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 	"github.com/google/gopacket/pcap"
@@ -58,34 +59,28 @@ func mustAtoiWithDefault(s string, defaultValue int) int {
 	return i
 }
 
-func doSniff(intf string, worker int, writerchan chan PcapFrame, conf *Conf) {
+func openHandle(intf string, conf *Conf) (*pcap.Handle, error) {
+	handle, err := pcap.OpenLive(intf, MAX_ETHERNET_MTU, true, pcap.BlockForever)
+	if err != nil {
+		return nil, err
+	}
+	err = handle.SetBPFFilter(conf.Filter)
+	if err != nil { // optional
+		return nil, err
+	}
+	return handle, err
+}
+
+func doSniff(handle *pcap.Handle, intf string, worker int, writerchan chan PcapFrame, conf *Conf) error {
 	runtime.LockOSThread()
 	var (
-		// metricsAddress = conf.MetricsAddress
-
-		// iface              = conf.Iface
-		filter             = conf.Filter
 		packetTimeInterval = conf.PacketTimeInterval
 		flowTimeout        = conf.FlowTimeout
 		flowByteCutoff     = conf.FlowByteCutoff
 		flowPacketCutoff   = conf.FlowPacketCutoff
-		// writeOutputPath    = conf.WriteOutputPath
-		// writeCompressed    = conf.WriteCompressed
-		// rotationInterval   = conf.RotationInterval
 	)
-
 	log.Printf("Starting worker %d on interface %s", worker, intf)
-	// workerString := fmt.Sprintf("%d", worker)
-
-	var err error
-	handle, err := pcap.OpenLive(intf, MAX_ETHERNET_MTU, true, pcap.BlockForever)
-	if err != nil {
-		panic(err)
-	}
-	err = handle.SetBPFFilter(filter)
-	if err != nil { // optional
-		panic(err)
-	}
+	workerString := fmt.Sprintf("%d", worker)
 
 	seen := make(map[FiveTuple]*trackedFlow)
 	var totalFlows, removedFlows, totalBytes, outputBytes, totalPackets, outputPackets uint
@@ -107,8 +102,11 @@ func doSniff(intf string, worker int, writerchan chan PcapFrame, conf *Conf) {
 		if err == io.EOF {
 			break
 		} else if err != nil {
-			log.Fatal(err)
+			log.Println("cannot read", err)
+			// <-time.After(2 * time.Second)
+			return errors.New("reconnect " + err.Error())
 		}
+		// log.Println("received packet")
 		totalPackets += 1
 		totalBytes += uint(len(packetData))
 
@@ -153,7 +151,7 @@ func doSniff(intf string, worker int, writerchan chan PcapFrame, conf *Conf) {
 
 			writerchan <- PcapFrame{ci, packetDataCopy}
 		} else if flw.logged == false && flw.bytecount > LARGE_FLOW_SIZE {
-			log.Printf("Large flow over 8GB: %s", flow)
+			log.Printf("Large flow over 1GB: %s", flow)
 			flw.logged = true
 		}
 		//Cleanup
@@ -166,13 +164,14 @@ func doSniff(intf string, worker int, writerchan chan PcapFrame, conf *Conf) {
 			}
 			if time.Since(lastcleanup) > packetTimeInterval {
 				lastcleanup = time.Now()
-				//seen = make(map[string]*trackedFlow)
+				// seen = make(map[string]*trackedFlow)
 				var remove []FiveTuple
 				for flow, flw := range seen {
 					if lastcleanup.Sub(flw.last) > flowTimeout {
 						remove = append(remove, flow)
 						removedFlows += 1
 						// mFlowSize.Observe(float64(flw.bytecount))
+						// publish(&NetworkEvent{"mFlowSize", workerString, intf, flw.bytecount})
 					}
 				}
 				for _, rem := range remove {
@@ -183,30 +182,29 @@ func doSniff(intf string, worker int, writerchan chan PcapFrame, conf *Conf) {
 					totalBytes, totalPackets, outputPackets, 100*float64(outputPackets)/float64(totalPackets),
 					pcapStats.PacketsReceived, pcapStats.PacketsDropped, pcapStats.PacketsIfDropped)
 
-				// expireSeconds := float64(time.Since(lastcleanup).Seconds())
+				expireSeconds := float64(time.Since(lastcleanup).Seconds())
 				// mExpired.WithLabelValues(intf, workerString).Set(float64(len(remove)))
 				// mExpiredDurTotal.WithLabelValues(intf, workerString).Add(expireSeconds)
+				publish(&NetworkEvent{"expireSeconds", workerString, intf, time.Since(lastcleanup).Seconds()})
+				publish(&NetworkEvent{"mExpired", workerString, intf, len(remove)})
+				publish(&NetworkEvent{"mExpiredDurTotal", workerString, intf, expireSeconds})
 			}
-			// mActiveFlows.WithLabelValues(intf, workerString).Set(float64(len(seen)))
+			publish(&NetworkEvent{"mActiveFlows", workerString, intf, len(seen)})
+			publish(&NetworkEvent{"mFlows", workerString, intf, totalFlows})
+			publish(&NetworkEvent{"mPackets", workerString, intf, totalPackets})
+			publish(&NetworkEvent{"mBytes", workerString, intf, totalBytes})
+			publish(&NetworkEvent{"mBytesOutput", workerString, intf, outputBytes})
+			publish(&NetworkEvent{"mOutput", workerString, intf, outputPackets})
+			publish(&NetworkEvent{"mReceived", workerString, intf, pcapStats.PacketsReceived})
+			publish(&NetworkEvent{"mDropped", workerString, intf, pcapStats.PacketsDropped})
+			publish(&NetworkEvent{"mIfDropped", workerString, intf, pcapStats.PacketsIfDropped})
 
-			// mFlows.WithLabelValues(intf, workerString).Add(float64(totalFlows))
 			totalFlows = 0
-
-			// mPackets.WithLabelValues(intf, workerString).Add(float64(totalPackets))
 			totalPackets = 0
-
-			// mBytes.WithLabelValues(intf, workerString).Add(float64(totalBytes))
 			totalBytes = 0
-
-			// mBytesOutput.WithLabelValues(intf, workerString).Add(float64(outputBytes))
 			outputBytes = 0
-
-			// mOutput.WithLabelValues(intf, workerString).Add(float64(outputPackets))
 			outputPackets = 0
-
-			// mReceived.WithLabelValues(intf, workerString).Set(float64(pcapStats.PacketsReceived))
-			// mDropped.WithLabelValues(intf, workerString).Set(float64(pcapStats.PacketsDropped))
-			// mIfDropped.WithLabelValues(intf, workerString).Set(float64(pcapStats.PacketsIfDropped))
 		}
 	}
+	return nil
 }

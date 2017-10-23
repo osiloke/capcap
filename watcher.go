@@ -2,6 +2,7 @@ package capcap
 
 import (
 	"fmt"
+	"github.com/google/gopacket/pcap"
 	"log"
 	"path/filepath"
 	"strings"
@@ -17,6 +18,31 @@ func Stop(done, complete chan bool) {
 		return
 	}
 }
+
+// mustSniff tries to sniff a device or waits for a device to be available then sniff
+func mustSniff(iface string, worker int, writerchan chan PcapFrame, conf *Conf) (*pcap.Handle, error) {
+	handle, err := openHandle(iface, conf)
+	if err != nil {
+		log.Println("unable to sniff", err.Error())
+		// every 5 seconds try to reconnect
+		<-time.After(5 * time.Second)
+		return mustSniff(iface, worker, writerchan, conf)
+	}
+	log.Println("opened " + iface + " handle")
+	return handle, nil
+}
+
+func handleInterface(iface string, worker int, pcapWriterChan chan PcapFrame, conf *Conf) {
+	handle, _ := mustSniff(iface, worker, pcapWriterChan, conf)
+	defer handle.Close()
+	err := doSniff(handle, iface, worker, pcapWriterChan, conf)
+	if err != nil {
+		if strings.HasPrefix(err.Error(), "reconnect") {
+			log.Println(err.Error())
+			go handleInterface(iface, worker, pcapWriterChan, conf)
+		}
+	}
+}
 func Watch(done, complete chan bool, workerCount int, conf *Conf) {
 	var (
 		writeOutputPath  = conf.WriteOutputPath
@@ -29,7 +55,7 @@ func Watch(done, complete chan bool, workerCount int, conf *Conf) {
 	for _, iface := range conf.Iface {
 		log.Printf("Starting capture on %s with %d workers", iface, workerCount)
 		for worker := 0; worker < workerCount; worker++ {
-			go doSniff(iface, worker, pcapWriterChan, conf)
+			go handleInterface(iface, worker, pcapWriterChan, conf)
 		}
 	}
 

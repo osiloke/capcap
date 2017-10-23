@@ -67,13 +67,14 @@ func openPcap(baseFilename string, conf *Conf) (pcapWrapper, error) {
 //writeOutputPath/yyy/mm/dd/yyyy-mm-ddThh-mm-ss.pcap.gz
 
 func renamePcap(tempName, outputPath string, writeCompressed bool) error {
-	datePart := time.Now().Format("2006/01/02/2006-01-02T15-04-05.pcap")
+	// datePart := time.Now().Format("2006/01/02/2006-01-02T15-04-05.pcap")
+	datePart := time.Now().Format("2006-01-02T15-04-05.pcap")
 	if writeCompressed {
 		datePart = datePart + ".gz"
 		tempName = tempName + ".gz"
 	}
 
-	newName := filepath.Join(outputPath, datePart)
+	newName := filepath.Join(outputPath, "rotated", datePart)
 	//Ensure the directori exists
 	if err := os.MkdirAll(filepath.Dir(newName), 0777); err != nil {
 		return err
