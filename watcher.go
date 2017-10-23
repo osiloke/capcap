@@ -37,11 +37,13 @@ func handleInterface(iface string, worker int, pcapWriterChan chan PcapFrame, co
 	defer handle.Close()
 	err := doSniff(handle, iface, worker, pcapWriterChan, conf)
 	if err != nil {
+		log.Println(err.Error())
 		if strings.HasPrefix(err.Error(), "reconnect") {
-			log.Println(err.Error())
+			handle.Close()
 			go handleInterface(iface, worker, pcapWriterChan, conf)
 		}
 	}
+	log.Println("handleInterface finished")
 }
 func Watch(done, complete chan bool, workerCount int, conf *Conf) {
 	var (

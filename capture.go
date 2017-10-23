@@ -100,7 +100,7 @@ func doSniff(handle *pcap.Handle, intf string, worker int, writerchan chan PcapF
 	for {
 		packetData, ci, err := handle.ZeroCopyReadPacketData()
 		if err == io.EOF {
-			break
+			return err
 		} else if err != nil {
 			log.Println("cannot read", err)
 			// <-time.After(2 * time.Second)
