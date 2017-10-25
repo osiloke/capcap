@@ -80,7 +80,6 @@ func doSniff(handle *pcap.Handle, intf string, worker int, writerchan chan PcapF
 		flowPacketCutoff   = conf.FlowPacketCutoff
 	)
 	log.Printf("Starting worker %d on interface %s", worker, intf)
-	workerString := fmt.Sprintf("%d", worker)
 
 	seen := make(map[FiveTuple]*trackedFlow)
 	var totalFlows, removedFlows, totalBytes, outputBytes, totalPackets, outputPackets uint
@@ -97,6 +96,7 @@ func doSniff(handle *pcap.Handle, intf string, worker int, writerchan chan PcapF
 	parser.IgnoreUnsupported = true
 	decoded := []gopacket.LayerType{}
 	var speedup int
+	// workerString := fmt.Sprintf("%d", worker)
 	for {
 		packetData, ci, err := handle.ZeroCopyReadPacketData()
 		if err == io.EOF {
@@ -182,22 +182,22 @@ func doSniff(handle *pcap.Handle, intf string, worker int, writerchan chan PcapF
 					totalBytes, totalPackets, outputPackets, 100*float64(outputPackets)/float64(totalPackets),
 					pcapStats.PacketsReceived, pcapStats.PacketsDropped, pcapStats.PacketsIfDropped)
 
-				expireSeconds := float64(time.Since(lastcleanup).Seconds())
+				// expireSeconds := float64(time.Since(lastcleanup).Seconds())
 				// mExpired.WithLabelValues(intf, workerString).Set(float64(len(remove)))
 				// mExpiredDurTotal.WithLabelValues(intf, workerString).Add(expireSeconds)
-				publish(&NetworkEvent{"expireSeconds", workerString, intf, time.Since(lastcleanup).Seconds()})
-				publish(&NetworkEvent{"mExpired", workerString, intf, len(remove)})
-				publish(&NetworkEvent{"mExpiredDurTotal", workerString, intf, expireSeconds})
+				// publish(&NetworkEvent{"expireSeconds", workerString, intf, time.Since(lastcleanup).Seconds()})
+				// publish(&NetworkEvent{"mExpired", workerString, intf, len(remove)})
+				// publish(&NetworkEvent{"mExpiredDurTotal", workerString, intf, expireSeconds})
 			}
-			publish(&NetworkEvent{"mActiveFlows", workerString, intf, len(seen)})
-			publish(&NetworkEvent{"mFlows", workerString, intf, totalFlows})
-			publish(&NetworkEvent{"mPackets", workerString, intf, totalPackets})
-			publish(&NetworkEvent{"mBytes", workerString, intf, totalBytes})
-			publish(&NetworkEvent{"mBytesOutput", workerString, intf, outputBytes})
-			publish(&NetworkEvent{"mOutput", workerString, intf, outputPackets})
-			publish(&NetworkEvent{"mReceived", workerString, intf, pcapStats.PacketsReceived})
-			publish(&NetworkEvent{"mDropped", workerString, intf, pcapStats.PacketsDropped})
-			publish(&NetworkEvent{"mIfDropped", workerString, intf, pcapStats.PacketsIfDropped})
+			// publish(&NetworkEvent{"mActiveFlows", workerString, intf, len(seen)})
+			// publish(&NetworkEvent{"mFlows", workerString, intf, totalFlows})
+			// publish(&NetworkEvent{"mPackets", workerString, intf, totalPackets})
+			// publish(&NetworkEvent{"mBytes", workerString, intf, totalBytes})
+			// publish(&NetworkEvent{"mBytesOutput", workerString, intf, outputBytes})
+			// publish(&NetworkEvent{"mOutput", workerString, intf, outputPackets})
+			// publish(&NetworkEvent{"mReceived", workerString, intf, pcapStats.PacketsReceived})
+			// publish(&NetworkEvent{"mDropped", workerString, intf, pcapStats.PacketsDropped})
+			// publish(&NetworkEvent{"mIfDropped", workerString, intf, pcapStats.PacketsIfDropped})
 
 			totalFlows = 0
 			totalPackets = 0
@@ -206,5 +206,6 @@ func doSniff(handle *pcap.Handle, intf string, worker int, writerchan chan PcapF
 			outputPackets = 0
 		}
 	}
+	log.Println("stopped capture")
 	return nil
 }
